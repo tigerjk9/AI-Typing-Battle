@@ -51,4 +51,4 @@ AI 체험 부스나 교육용 콘텐츠, 또는 친구와 함께 즐길 수 있�
 
 이 프로젝트가 AI 기술에 대한 막연한 두려움을 없애고, 'AI가 우리 삶을 이렇게 즐겁게 만들 수도 있구나!'하는 긍정적인 인식을 심어주는 작은 계기가 되었으면 합니다. 여러분도 이 게임을 직접 해보시거나, 여러분만의 상상력이 담긴 새로운 인터랙션을 만들어보는 것은 어떨까요?
 
-**바로가기:** [ai-typing-battle.netlify.app](https://ai-typing-battle.netlify.app)
+**바로가기:** [https://ai-typing-battle.netlify.app/](https://ai-typing-battle.netlify.app)
