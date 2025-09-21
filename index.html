@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>손끝으로 타닥! AI 타이핑 배틀</title>
+    <!-- Pretendard Font -->
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+    <!-- MediaPipe Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <style>
+        body {
+            font-family: 'Pretendard', sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f2f5;
+            flex-direction: column;
+        }
+        h1 {
+            font-size: 3.5em;
+            font-weight: 800;
+            margin-bottom: 15px;
+            /* Gradient Text Style */
+            background: linear-gradient(45deg, #A092E4, #6a5acd);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            color: transparent;
+        }
+        .container {
+            position: relative;
+            width: 1280px;
+            height: 720px;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+        #webcam, #output_canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 20px;
+        }
+        #webcam {
+            transform: scaleX(-1);
+            display: none;
+        }
+        #output_canvas {
+            z-index: 10;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2.5em;
+            font-weight: 600;
+            color: #555;
+            z-index: 11;
+        }
+        footer {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 15px;
+            color: #8d99ae;
+            border-top: 1px solid #e5e5e5;
+            width: 1280px;
+        }
+        footer p {
+            margin: 4px 0;
+        }
+        footer .font-bold {
+            font-weight: 700;
+            color: #2b2d42;
+        }
+        footer a {
+            text-decoration: none;
+            color: #A092E4;
+            font-weight: 600;
+        }
+        footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <h1>손끝으로 타닥! AI 타이핑 배틀</h1>
+    <div class="container">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="output_canvas" width="1280" height="720"></canvas>
+        <div id="loading">AI 모델을 불러오는 중입니다...</div>
+    </div>
+    <footer>
+          <p class="font-bold">Made by <a href="https://litt.ly/dot_connector" target="_blank" rel="noopener noreferrer">김진관 (닷커넥터)</a></p>
+          <p>배움, 나눔, 성장을 추구하는 연결주의자</p>
+    </footer>
+
+    <script type="module">
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const loadingElement = document.getElementById('loading');
+
+        let gameState = 'loading';
+        let round = 1;
+        const maxRounds = 3;
+        const winScore = 2;
+        let p1Score = 0, p2Score = 0;
+        let p1Text = "", p2Text = "";
+        let roundWinner = null, finalWinner = null;
+
+        const wordPool = [
+            "ORANGE", "PURPLE", "SILVER", "BRONZE", "DIAMOND", "PLANET", "GALAXY", "COMET", "COSMOS", "ROCKET",
+            "ENGINE", "ROBOTS", "FUTURE", "VISION", "DREAM", "ENERGY", "POWER", "DESIGN", "CREATE", "BUILD",
+            "INVENT", "EXPLORE", "JOURNEY", "ADVENTURE", "QUEST", "CHALLENGE", "PUZZLE", "ANSWER", "SECRET", "MAGIC",
+            "WIZARD", "CASTLE", "DRAGON", "LEGEND", "MYTH", "HERO", "VILLAIN", "STORY", "POEM", "SONG",
+            "RHYTHM", "MELODY", "HARMONY", "ARTIST", "CANVAS",
+            "ARTIFICIAL INTELLIGENCE", "MACHINE LEARNING", "VIRTUAL REALITY", "SPACE EXPLORER", "DEEP THOUGHTS"
+        ];
+        let targetWords = [];
+
+        const p1ButtonList = [], p2ButtonList = [];
+        const clickCooldown = 500;
+        let p1LastClickTime = 0, p2LastClickTime = 0;
+        
+        class Button {
+            constructor(pos, text, size) { this.pos = pos; this.text = text; this.size = size; }
+        }
+
+        function createKeyboards() {
+            const btnSize = [56, 56];
+            const spaceSize = [350, 56];
+            const gap = 6;
+            
+            const p1Area = { x: 10, y: 380, width: 630 };
+            const p2Area = { x: 640, y: 380, width: 630 };
+
+            const keyLayout = [
+                ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
+                ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
+                ["Z", "X", "C", "V", "B", "N", "M", "⌫"],
+            ];
+
+            [p1Area, p2Area].forEach((area, playerIndex) => {
+                const buttonList = playerIndex === 0 ? p1ButtonList : p2ButtonList;
+                buttonList.length = 0; // Clear previous buttons
+                keyLayout.forEach((row, i) => {
+                    const rowWidth = row.length * (btnSize[0] + gap) - gap;
+                    const rowStartX = area.x + (area.width - rowWidth) / 2;
+                    row.forEach((key, j) => {
+                        buttonList.push(new Button([rowStartX + (btnSize[0] + gap) * j, area.y + (btnSize[1] + gap) * i], key, btnSize));
+                    });
+                });
+                buttonList.push(new Button([area.x + (area.width - spaceSize[0]) / 2, area.y + 3 * (btnSize[1] + gap)], "SPACE", spaceSize));
+            });
+        }
+
+        function drawAllUI() {
+            canvasCtx.font = "800 70px 'Pretendard'";
+            canvasCtx.fillStyle = "#343a40";
+            canvasCtx.textAlign = "center";
+            canvasCtx.fillText(`목표 단어: ${targetWords[round - 1]}`, 640, 150);
+
+            canvasCtx.font = "bold 32px 'Pretendard'";
+            canvasCtx.fillStyle = "#6d6875";
+            canvasCtx.fillText("PLAYER 1", 325, 250);
+            canvasCtx.fillText("PLAYER 2", 955, 250);
+
+            canvasCtx.font = "600 40px 'Pretendard'";
+            canvasCtx.fillStyle = "#e63946";
+            canvasCtx.fillText(p1Text, 325, 300);
+            canvasCtx.fillText(p2Text, 955, 300);
+            
+            drawKeyboard(p1ButtonList);
+            drawKeyboard(p2ButtonList);
+            drawBottomBar();
+        }
+
+        function drawKeyboard(buttonList) {
+            for (const button of buttonList) {
+                const [x, y] = button.pos;
+                const [w, h] = button.size;
+                canvasCtx.fillStyle = '#FFFFFF';
+                canvasCtx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+                canvasCtx.shadowBlur = 10;
+                canvasCtx.shadowOffsetY = 4;
+                roundRect(canvasCtx, x, y, w, h, 12, true, false);
+                canvasCtx.shadowColor = 'transparent';
+
+                canvasCtx.font = "bold 22px 'Pretendard'";
+                canvasCtx.fillStyle = "#495057";
+                canvasCtx.textAlign = "center";
+                canvasCtx.textBaseline = "middle";
+                canvasCtx.fillText(button.text, x + w / 2, y + h / 2 + 2);
+            }
+        }
+        
+        function drawBottomBar() {
+            canvasCtx.fillStyle = "rgba(255, 255, 255, 0.8)";
+            canvasCtx.fillRect(0, 650, 1280, 70);
+
+            canvasCtx.font = "bold 28px 'Pretendard'";
+            canvasCtx.textAlign = "center";
+            canvasCtx.textBaseline = "middle";
+            canvasCtx.fillStyle = "#4361ee";
+            canvasCtx.fillText(`P1 SCORE: ${p1Score}`, 150, 685);
+            canvasCtx.fillStyle = "#343a40";
+            canvasCtx.fillText(`ROUND ${round}`, 640, 685);
+            canvasCtx.fillStyle = "#d00000";
+            canvasCtx.fillText(`P2 SCORE: ${p2Score}`, 1130, 685);
+        }
+
+        function handleHandInteraction(hand, playerNum) {
+            const indexTip = hand[8], middleTip = hand[12];
+            const buttonList = playerNum === 1 ? p1ButtonList : p2ButtonList;
+            const ix = (1 - indexTip.x) * canvasElement.width;
+            const iy = indexTip.y * canvasElement.height;
+            const pointerColor = playerNum === 1 ? 'rgba(67, 97, 238, 0.7)' : 'rgba(208, 0, 0, 0.7)';
+            canvasCtx.beginPath();
+            canvasCtx.arc(ix, iy, 15, 0, 2 * Math.PI);
+            canvasCtx.fillStyle = pointerColor;
+            canvasCtx.fill();
+
+            const distance = Math.hypot(((1-indexTip.x) - (1-middleTip.x)) * canvasElement.width, (indexTip.y - middleTip.y) * canvasElement.height);
+            let isClicking = distance < 35;
+            let now = Date.now();
+            let lastClickTime = playerNum === 1 ? p1LastClickTime : p2LastClickTime;
+            
+            buttonList.forEach(button => {
+                const [x, y] = button.pos;
+                const [w, h] = button.size;
+                if (ix > x && ix < x + w && iy > y && iy < y + h) {
+                    canvasCtx.strokeStyle = '#ffc300';
+                    canvasCtx.lineWidth = 4;
+                    roundRect(canvasCtx, x, y, w, h, 12, false, true);
+                    if (isClicking && now > lastClickTime + clickCooldown) {
+                        if (playerNum === 1) p1LastClickTime = now; else p2LastClickTime = now;
+                        canvasCtx.fillStyle = 'rgba(255, 195, 0, 0.5)';
+                        roundRect(canvasCtx, x, y, w, h, 12, true, false);
+                        handleKeyPress(playerNum, button.text);
+                    }
+                }
+            });
+        }
+        
+        function handleKeyPress(playerNum, key) {
+             let currentText = playerNum === 1 ? p1Text : p2Text;
+             if(key === "⌫") currentText = currentText.slice(0, -1);
+             else if (key === "SPACE") currentText += " ";
+             else if (currentText.length < 30) currentText += key;
+             if(playerNum === 1) p1Text = currentText; else p2Text = currentText;
+             checkWinCondition();
+        }
+
+        function checkWinCondition() {
+            if (gameState !== 'playing') return;
+            const target = targetWords[round-1];
+            if(p1Text === target) {
+                p1Score++; roundWinner = 1; gameState = 'roundOver';
+                setTimeout(nextRound, 3000);
+            } else if (p2Text === target) {
+                p2Score++; roundWinner = 2; gameState = 'roundOver';
+                setTimeout(nextRound, 3000);
+            }
+        }
+        
+        function nextRound(){
+            p1Text = ""; p2Text = ""; roundWinner = null;
+            if (p1Score === winScore || p2Score === winScore) {
+                finalWinner = p1Score > p2Score ? 1 : 2;
+                gameState = 'gameOver';
+                return;
+            }
+            if (round < maxRounds) {
+                round++;
+                gameState = 'playing';
+            } else {
+                finalWinner = p1Score > p2Score ? 1 : (p2Score > p1Score ? 2 : 'DRAW');
+                gameState = 'gameOver';
+            }
+        }
+
+        function drawOverlay() {
+            canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+            canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.textAlign = 'center';
+            canvasCtx.fillStyle = 'white';
+            const baseFont = "'Pretendard', sans-serif";
+
+            if (gameState === 'roundOver' || gameState === 'gameOver') {
+                 const title = gameState === 'roundOver' ? `ROUND ${round} WINNER` : 'FINAL WINNER!';
+                 const winner = gameState === 'roundOver' ? roundWinner : finalWinner;
+                 canvasCtx.font = `bold 100px ${baseFont}`;
+                 canvasCtx.fillStyle = "#FFC300";
+                 canvasCtx.fillText(title, 640, 320);
+                 canvasCtx.font = `800 160px ${baseFont}`;
+                 if(winner === 'DRAW'){
+                    canvasCtx.fillStyle = 'white';
+                    canvasCtx.fillText('DRAW', 640, 500);
+                 } else {
+                    const winnerColor = winner === 1 ? '#8ECAE6' : '#FFB4A2';
+                    canvasCtx.fillStyle = winnerColor;
+                    canvasCtx.fillText(`PLAYER ${winner}`, 640, 500);
+                 }
+                 if(gameState === 'gameOver'){
+                    canvasCtx.font = `50px ${baseFont}`;
+                    canvasCtx.fillText("다시 시작하려면 양손을 모두 들어주세요!", 640, 650);
+                 }
+            } else if (gameState === 'ready'){
+                canvasCtx.font = `800 80px ${baseFont}`;
+                canvasCtx.fillText("손끝으로 타닥! AI 타이핑 배틀", 640, 280);
+                canvasCtx.font = `50px ${baseFont}`;
+                canvasCtx.fillText("양손을 화면에 보여주면 게임이 시작됩니다.", 640, 380);
+                canvasCtx.font = `40px ${baseFont}`;
+                canvasCtx.fillText("검지와 중지를 붙여서 키를 입력하세요!", 640, 450);
+            }
+        }
+        
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function resetGame(){
+            round = 1; p1Score = 0; p2Score = 0;
+            p1Text = ""; p2Text = "";
+            roundWinner = null; finalWinner = null;
+            targetWords = shuffleArray([...wordPool]).slice(0, maxRounds);
+            gameState = 'ready';
+        }
+
+        function roundRect(ctx, x, y, width, height, radius, fill, stroke) {
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + width - radius, y);
+            ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+            ctx.lineTo(x + width, y + height - radius);
+            ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+            ctx.lineTo(x + radius, y + height);
+            ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+            if(stroke) ctx.stroke();
+            if(fill) ctx.fill();
+        }
+
+        function onResults(results) {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.scale(-1, 1);
+            canvasCtx.translate(-canvasElement.width, 0);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.restore();
+            
+            canvasCtx.fillStyle = "rgba(255, 255, 255, 0.85)";
+            canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            const hands = results.multiHandLandmarks;
+
+            if (gameState === 'loading' && hands && hands.length > 0) gameState = 'ready';
+            
+            if (gameState === 'playing') {
+                drawAllUI();
+                 if (hands && hands.length > 0) {
+                    hands.forEach(hand => {
+                        const wristX = hand[0].x;
+                        if (wristX > 0.5) handleHandInteraction(hand, 1);
+                        else handleHandInteraction(hand, 2);
+                    });
+                }
+            } else if (gameState === 'ready' || gameState === 'roundOver' || gameState === 'gameOver') {
+                drawOverlay();
+                if(gameState === 'ready' && hands && hands.length === 2) gameState = 'playing';
+                if(gameState === 'gameOver' && hands && hands.length === 2) resetGame();
+            }
+        }
+
+        const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+        hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({ image: videoElement }); },
+            width: 1280, height: 720
+        });
+        camera.start().then(() => {
+            loadingElement.style.display = 'none';
+            createKeyboards();
+            resetGame();
+        });
+    </script>
+</body>
+</html>
+
